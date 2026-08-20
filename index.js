@@ -8,10 +8,13 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// 2. Membangun Jembatan Koneksi Blockchain
+// 2. Membangun Jembatan Koneksi Blockchain (EVM + Solana)
 const ethProvider = new ethers.JsonRpcProvider(process.env.ALCHEMY_ETH_URL);
 const bscProvider = new ethers.JsonRpcProvider(process.env.ALCHEMY_BSC_URL);
 const robinhoodProvider = new ethers.JsonRpcProvider(process.env.ALCHEMY_ROBINHOOD_URL);
+// Jembatan baru untuk Base Chain
+const baseProvider = new ethers.JsonRpcProvider(process.env.ALCHEMY_BASE_URL); 
+
 const solanaConnection = new solanaWeb3.Connection(process.env.ALCHEMY_SOL_URL);
 
 // 3. Menyiapkan Alamat Dompet Target
@@ -20,7 +23,6 @@ const solanaTargetWallet = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH";
 
 // 4. Fungsi Khusus untuk Menyimpan ke Database
 async function simpanKeWatchlist(wallet, network) {
-    // Mengecek apakah dompet sudah ada di database agar tidak duplikat
     const { data: existingData } = await supabase
         .from('watchlist')
         .select('*')
@@ -32,7 +34,6 @@ async function simpanKeWatchlist(wallet, network) {
         return;
     }
 
-    // Jika belum ada, masukkan data baru ke tabel watchlist
     const { error } = await supabase
         .from('watchlist')
         .insert([
@@ -40,7 +41,7 @@ async function simpanKeWatchlist(wallet, network) {
         ]);
 
     if (error) {
-        console.error(`❌ [Database] Gagal menyimpan ${wallet}:`, error.message);
+        console.error(`❌ [Database] Gagal menyimpan ${wallet} (${network}):`, error.message);
     } else {
         console.log(`✅ [Database] Berhasil menyimpan ${wallet} (${network}) ke Watchlist!`);
     }
@@ -52,11 +53,12 @@ async function trackAllChains() {
     console.log("---------------------------------------------------");
 
     try {
-        // Mengambil Saldo EVM
-        const [ethBalance, bscBalance, robinhoodBalance] = await Promise.all([
+        // Mengambil Saldo EVM (Sekarang memasukkan Base Chain ke dalam antrean)
+        const [ethBalance, bscBalance, robinhoodBalance, baseBalance] = await Promise.all([
             ethProvider.getBalance(evmTargetWallet),
             bscProvider.getBalance(evmTargetWallet),
-            robinhoodProvider.getBalance(evmTargetWallet)
+            robinhoodProvider.getBalance(evmTargetWallet),
+            baseProvider.getBalance(evmTargetWallet) // Menarik saldo Base secara bersamaan
         ]);
 
         // Mengambil Saldo Solana
@@ -68,18 +70,18 @@ async function trackAllChains() {
         console.log(`[Target EVM]   : ${evmTargetWallet}`);
         console.log(`💰 Saldo ETH   : ${ethers.formatEther(ethBalance)} ETH`);
         console.log(`💰 Saldo BSC   : ${ethers.formatEther(bscBalance)} BNB`);
-        console.log(`💰 Saldo RH    : ${ethers.formatEther(robinhoodBalance)} (Native Token)\n`);
+        console.log(`💰 Saldo RH    : ${ethers.formatEther(robinhoodBalance)} (Native Token)`);
+        console.log(`💰 Saldo Base  : ${ethers.formatEther(baseBalance)} ETH\n`); // Hasil cetak saldo Base
 
         console.log(`[Target SOL]   : ${solanaTargetWallet}`);
         console.log(`💰 Saldo SOL   : ${solBalance} SOL`);
         console.log("---------------------------------------------------");
 
-        // MENYIMPAN KE DATABASE SUPABASE
-        // Menggunakan kolom 'wallet_address' dan 'chain_network' yang sudah Anda buat
         // MENYIMPAN KE DATABASE SUPABASE SECARA SPESIFIK
         await simpanKeWatchlist(evmTargetWallet, 'Ethereum');
         await simpanKeWatchlist(evmTargetWallet, 'BSC');
         await simpanKeWatchlist(evmTargetWallet, 'Robinhood Chain');
+        await simpanKeWatchlist(evmTargetWallet, 'Base Chain'); // Menyimpan identitas Base ke DB
         await simpanKeWatchlist(solanaTargetWallet, 'Solana');
 
     } catch (error) {
